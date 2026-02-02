@@ -1,7 +1,8 @@
 /**
  * =================================================================================
- * MTD DASHBOARD GENERATOR (v5.4 - PRODUCTION)
+ * MTD DASHBOARD GENERATOR (v5.5 - PRODUCTION)
  * Full month-over-month comparison with clean output
+ * FIXED: Month selector now properly handles Auto/Manual selection
  * =================================================================================
  */
 
@@ -13,19 +14,37 @@ function createRestoredMTDDashboard() {
   var trendSheet = ss.getSheetByName("TrendData_DEV") || ss.insertSheet("TrendData_DEV");
   var style = CONFIG.STYLES;
   
-  // Auto-default for month selector
+  // 🆕 FIXED: Improved month selector logic
   var m2Range = dashboard.getRange("M2");
-  if (!m2Range.getValue()) m2Range.setValue("Auto");
+  var selectedValue = m2Range.getValue();
+  
+  // Initialize month selector dropdown if not already set
+  if (!selectedValue || selectedValue === "") {
+    m2Range.setValue("Auto");
+    selectedValue = "Auto";
+  }
   
   // Determine current month
   var today = new Date();
-  var selectedValue = m2Range.getValue();
-  var currentMonth = (selectedValue === "Auto" || !selectedValue) 
-    ? CONFIG.MONTH_NAMES[today.getMonth()] 
-    : selectedValue;
+  var currentMonth;
+  
+  if (selectedValue === "Auto") {
+    // Use current month
+    currentMonth = CONFIG.MONTH_NAMES[today.getMonth()];
+  } else if (CONFIG.MONTH_NAMES.indexOf(selectedValue) >= 0) {
+    // Use selected month from dropdown
+    currentMonth = selectedValue;
+  } else {
+    // Fallback to current month if invalid selection
+    currentMonth = CONFIG.MONTH_NAMES[today.getMonth()];
+    m2Range.setValue("Auto");
+  }
   
   var monthSheet = ss.getSheetByName(currentMonth);
-  if (!monthSheet) return;
+  if (!monthSheet) {
+    SpreadsheetApp.getUi().alert('Sheet "' + currentMonth + '" not found. Please create it first.');
+    return;
+  }
   
   // Calculate date metrics
   var monthIdx = CONFIG.MONTH_NAMES.indexOf(currentMonth);
@@ -51,6 +70,7 @@ function createRestoredMTDDashboard() {
   
   // Build dashboard
   cleanupDashboard(dashboard, trendSheet);
+  buildMonthSelector(dashboard, style, currentMonth); // 🆕 NEW: Add month selector
   buildRefreshSection(dashboard, style);
   buildHeader(dashboard, style, currentMonth, rawData, runRateDivisor, daysInMonth, monthSheet);
   buildKPICards(dashboard, style, currentMonth, prevMonth, ss);
@@ -62,18 +82,68 @@ function createRestoredMTDDashboard() {
 }
 
 /**
+ * 🆕 BUILD MONTH SELECTOR DROPDOWN
+ */
+function buildMonthSelector(dashboard, style, currentMonth) {
+  // Label for month selector
+  dashboard.getRange("M5").setValue("Select Month:")
+    .setFontSize(9)
+    .setFontWeight("bold")
+    .setFontColor(style.accent)
+    .setHorizontalAlignment("center");
+  
+  // Month selector dropdown
+  var m2Range = dashboard.getRange("M2");
+  
+  // Create dropdown with Auto + all month names
+  var monthOptions = ["Auto"].concat(CONFIG.MONTH_NAMES);
+  var rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(monthOptions, true)
+    .setAllowInvalid(false)
+    .build();
+  
+  m2Range.setDataValidation(rule);
+  
+  // Style the dropdown cell
+  m2Range
+    .setBackground("#ffffff")
+    .setFontWeight("bold")
+    .setFontColor(style.main)
+    .setHorizontalAlignment("center")
+    .setVerticalAlignment("middle")
+    .setBorder(true, true, true, true, null, null, style.main, SpreadsheetApp.BorderStyle.SOLID);
+  
+  // Set current value if not already set
+  if (!m2Range.getValue() || m2Range.getValue() === "") {
+    m2Range.setValue("Auto");
+  }
+  
+  // Add note to explain Auto mode
+  m2Range.setNote(
+    "Auto: Shows current month\n" +
+    "Or select a specific month to view"
+  );
+}
+
+/**
  * Cleanup dashboard and trend sheet
  */
 function cleanupDashboard(dashboard, trendSheet) {
   try {
     dashboard.getRange("A1:L100").clear();
-    dashboard.getRange("M1:M100").clear();
+    // 🆕 DON'T clear M2 (month selector) or M5 (label)
+    dashboard.getRange("M1:M1").clear();
+    dashboard.getRange("M3:M4").clear();
+    dashboard.getRange("M6:M100").clear();
     dashboard.getRange("Z1:Z20").clear();
     dashboard.clearFormats();
     dashboard.clearConditionalFormatRules();
   } catch (e) {
     try { 
-      dashboard.getRange("A1:L100").clearContent(); 
+      dashboard.getRange("A1:L100").clearContent();
+      dashboard.getRange("M1:M1").clearContent();
+      dashboard.getRange("M3:M4").clearContent();
+      dashboard.getRange("M6:M100").clearContent();
       dashboard.getRange("Z1:Z20").clearContent();
     } catch (e2) {}
   }
