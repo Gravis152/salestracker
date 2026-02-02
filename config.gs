@@ -11,6 +11,13 @@ var CONFIG = {
   WEEKEND_DAYS: [4, 5], // Thursday=4, Friday=5
   MONITORED_CELLS: ["I2", "I5", "I7", "I8", "I9"],
   
+  // 🆕 DROPDOWN VALUES for Quick Entry Form
+  DROPDOWN_VALUES: {
+    TYPE: ['PPVGA', 'UPG', 'AIA', 'Plus1'],
+    DEVICE: ['Apple', 'Samsung', 'AIAC', 'AIAB', 'BYOD', 'Google', 'Motorola'],
+    RATE_PLAN: ['Premium', 'Extra', 'Starter']
+  },
+  
   // FORCED COLUMN MAPPINGS - Override auto-detection for specific sheets
   FORCED_COLUMN_MAPPINGS: {
     "Jan": {
@@ -528,4 +535,11 @@ function calculateWorkingDaysLeft(currentMonth, today) {
   } catch (error) {
     return 1; // Safe fallback
   }
+}
+
+/**
+ * 🆕 Helper function to get config (for compatibility with other scripts)
+ */
+function getConfig() {
+  return CONFIG;
 }
