@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+      font-size: 14px;
+      padding: 16px;
+      background: #f8f9fa;
+      color: #202124;
+    }
+    
+    .form-container {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+    
+    h2 {
+      font-size: 20px;
+      font-weight: 500;
+      margin-bottom: 20px;
+      color: #1a73e8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    /* 🆕 Spreadsheet Link Styles */
+    .spreadsheet-link {
+      display: block;
+      text-align: center;
+      padding: 12px;
+      background: #e8f0fe;
+      border-radius: 6px;
+      margin-bottom: 20px;
+      text-decoration: none;
+      color: #1a73e8;
+      font-weight: 500;
+      font-size: 13px;
+      transition: background 0.2s;
+    }
+    
+    .spreadsheet-link:hover {
+      background: #d2e3fc;
+    }
+    
+    .spreadsheet-link:active {
+      background: #aecbfa;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: #5f6368;
+      font-size: 13px;
+    }
+    
+    label.required::after {
+      content: ' *';
+      color: #d93025;
+    }
+    
+    input[type="date"],
+    input[type="text"],
+    input[type="tel"],
+    select,
+    textarea {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color 0.2s;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    
+    input:focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #1a73e8;
+      box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+    }
+    
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%235f6368' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      background-color: white;
+      padding-right: 36px;
+      cursor: pointer;
+      min-height: 44px;
+    }
+    
+    input[type="tel"] {
+      font-variant-numeric: tabular-nums;
+    }
+    
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+      font-family: inherit;
+    }
+    
+    .button-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    
+    button {
+      flex: 1;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      min-height: 44px;
+    }
+    
+    .btn-primary {
+      background: #1a73e8;
+      color: white;
+    }
+    
+    .btn-primary:hover {
+      background: #1557b0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    
+    .btn-primary:active {
+      background: #0d47a1;
+    }
+    
+    .btn-secondary {
+      background: white;
+      color: #5f6368;
+      border: 1px solid #dadce0;
+    }
+    
+    .btn-secondary:hover {
+      background: #f8f9fa;
+    }
+    
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    .status-message {
+      padding: 12px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 13px;
+      display: none;
+    }
+    
+    .status-success {
+      background: #e6f4ea;
+      color: #137333;
+      border-left: 4px solid #34a853;
+    }
+    
+    .status-error {
+      background: #fce8e6;
+      color: #c5221f;
+      border-left: 4px solid #ea4335;
+    }
+    
+    .loading {
+      display: none;
+      text-align: center;
+      padding: 20px;
+      color: #5f6368;
+    }
+    
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #1a73e8;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 8px;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .field-hint {
+      font-size: 12px;
+      color: #5f6368;
+      margin-top: 4px;
+    }
+    
+    @media (max-width: 360px) {
+      body {
+        padding: 12px;
+      }
+      
+      .form-container {
+        padding: 16px;
+      }
+      
+      .button-group {
+        flex-direction: column;
+      }
+      
+      button {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="form-container">
+    <h2>
+      <span>📱</span>
+      <span>Quick Entry</span>
+    </h2>
+    
+    <!-- 🆕 SPREADSHEET LINK -->
+    <a id="spreadsheetLink" href="#" target="_blank" class="spreadsheet-link">
+      📊 Open Spreadsheet
+    </a>
+    
+    <div id="statusMessage" class="status-message"></div>
+    
+    <div id="loadingIndicator" class="loading">
+      <div class="spinner"></div>
+      <div>Submitting...</div>
+    </div>
+    
+    <form id="entryForm">
+      <div class="form-group">
+        <label for="date" class="required">Date</label>
+        <input type="date" id="date" name="date" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="type" class="required">Type</label>
+        <select id="type" name="type" required>
+          <option value="">Select Type...</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="device" class="required">Device</label>
+        <select id="device" name="device" required>
+          <option value="">Select Device...</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="customer" class="required">Customer</label>
+        <input type="text" id="customer" name="customer" placeholder="Enter customer name" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="mobileNumber" class="required">Mobile Number</label>
+        <input type="tel" id="mobileNumber" name="mobileNumber" placeholder="(123) 456-7890" required maxlength="14">
+        <div class="field-hint">Format: (123) 456-7890</div>
+      </div>
+      
+      <div class="form-group">
+        <label for="ratePlan" class="required">Rate Plan</label>
+        <select id="ratePlan" name="ratePlan" required>
+          <option value="">Select Rate Plan...</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes" placeholder="Optional notes..." rows="3"></textarea>
+      </div>
+      
+      <div class="button-group">
+        <button type="submit" class="btn-primary" id="submitBtn">
+          🎯 Submit Entry
+        </button>
+        <button type="button" class="btn-secondary" id="clearBtn">
+          🔄 Clear
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    let config = null;
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      loadConfiguration();
+      setupEventListeners();
+      loadSpreadsheetUrl(); // 🆕 Load spreadsheet link
+    });
+    
+    /**
+     * 🆕 Load spreadsheet URL
+     */
+    function loadSpreadsheetUrl() {
+      google.script.run
+        .withSuccessHandler(function(url) {
+          if (url) {
+            document.getElementById('spreadsheetLink').href = url;
+          }
+        })
+        .withFailureHandler(function(error) {
+          console.error('Failed to load spreadsheet URL:', error);
+        })
+        .getSpreadsheetUrl();
+    }
+    
+    function loadConfiguration() {
+      setLoadingState(true);
+      
+      google.script.run
+        .withSuccessHandler(function(data) {
+          config = data;
+          populateDropdowns();
+          setDefaultDate();
+          setLoadingState(false);
+        })
+        .withFailureHandler(function(error) {
+          showStatus('Failed to load form: ' + error.message, 'error');
+          setLoadingState(false);
+          document.getElementById('submitBtn').disabled = true;
+        })
+        .getSidebarConfig();
+    }
+    
+    function populateDropdowns() {
+      const typeSelect = document.getElementById('type');
+      config.dropdowns.type.forEach(function(option) {
+        const opt = document.createElement('option');
+        opt.value = option;
+        opt.textContent = option;
+        typeSelect.appendChild(opt);
+      });
+      
+      const deviceSelect = document.getElementById('device');
+      config.dropdowns.device.forEach(function(option) {
+        const opt = document.createElement('option');
+        opt.value = option;
+        opt.textContent = option;
+        deviceSelect.appendChild(opt);
+      });
+      
+      const ratePlanSelect = document.getElementById('ratePlan');
+      config.dropdowns.ratePlan.forEach(function(option) {
+        const opt = document.createElement('option');
+        opt.value = option;
+        opt.textContent = option;
+        ratePlanSelect.appendChild(opt);
+      });
+    }
+    
+    function setDefaultDate() {
+      document.getElementById('date').value = config.dateDefault;
+    }
+    
+    function setupEventListeners() {
+      document.getElementById('entryForm').addEventListener('submit', handleSubmit);
+      document.getElementById('clearBtn').addEventListener('click', clearForm);
+      document.getElementById('mobileNumber').addEventListener('input', formatPhoneNumber);
+      
+      // Keyboard shortcuts
+      document.addEventListener('keydown', function(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          e.preventDefault();
+          document.getElementById('entryForm').dispatchEvent(new Event('submit'));
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+          e.preventDefault();
+          clearForm();
+        }
+      });
+    }
+    
+    function handleSubmit(e) {
+      e.preventDefault();
+      
+      const formData = {
+        date: document.getElementById('date').value,
+        type: document.getElementById('type').value,
+        device: document.getElementById('device').value,
+        customer: document.getElementById('customer').value.trim(),
+        mobileNumber: document.getElementById('mobileNumber').value,
+        ratePlan: document.getElementById('ratePlan').value,
+        notes: document.getElementById('notes').value.trim()
+      };
+      
+      setLoadingState(true);
+      hideStatus();
+      
+      google.script.run
+        .withSuccessHandler(handleSubmitSuccess)
+        .withFailureHandler(handleSubmitError)
+        .submitSaleEntry(formData);
+    }
+    
+    function handleSubmitSuccess(response) {
+      setLoadingState(false);
+      
+      if (response.success) {
+        showStatus(response.message + ' - ' + response.details, 'success');
+        clearForm();
+        setTimeout(hideStatus, 5000);
+      } else {
+        showStatus(response.error, 'error');
+      }
+    }
+    
+    function handleSubmitError(error) {
+      setLoadingState(false);
+      showStatus('Submission failed: ' + error.message, 'error');
+    }
+    
+    function clearForm() {
+      document.getElementById('entryForm').reset();
+      setDefaultDate();
+      document.getElementById('customer').focus();
+    }
+    
+    function formatPhoneNumber(e) {
+      let input = e.target.value.replace(/\D/g, '');
+      
+      if (input.length === 0) {
+        e.target.value = '';
+        return;
+      }
+      
+      if (input.length <= 3) {
+        e.target.value = '(' + input;
+      } else if (input.length <= 6) {
+        e.target.value = '(' + input.slice(0, 3) + ') ' + input.slice(3);
+      } else {
+        e.target.value = '(' + input.slice(0, 3) + ') ' + input.slice(3, 6) + '-' + input.slice(6, 10);
+      }
+    }
+    
+    function showStatus(message, type) {
+      const statusEl = document.getElementById('statusMessage');
+      statusEl.textContent = message;
+      statusEl.className = 'status-message status-' + type;
+      statusEl.style.display = 'block';
+    }
+    
+    function hideStatus() {
+      document.getElementById('statusMessage').style.display = 'none';
+    }
+    
+    function setLoadingState(isLoading) {
+      document.getElementById('loadingIndicator').style.display = isLoading ? 'block' : 'none';
+      document.getElementById('entryForm').style.display = isLoading ? 'none' : 'block';
+      document.getElementById('submitBtn').disabled = isLoading;
+      document.getElementById('clearBtn').disabled = isLoading;
+    }
+  </script>
+</body>
+</html>
