@@ -1,357 +1,613 @@
 /**
- * =================================================================================
- * TRIGGERS AND MENU SYSTEM (v5.4 - FIXED SELLING DAYS & PERCENTAGE)
- * =================================================================================
+ * Triggers.gs
+ * Menu system, onOpen/onEdit handlers, and goal tracking
+ * 🆕 v2.0 - Added Dashboard auto-refresh on month selection
  */
 
-function getQuickHealthStatus() {
-  try {
-    var score = 100;
-    var stats = ADVANCED_CACHE.getStats();
-    if (stats.memoryKeys > stats.maxKeys * 0.9) score -= 20;
-    try {
-      if (ScriptApp.getRemainingDailyTriggers() < CONFIG.EXECUTION_LIMITS.MIN_QUOTA_TRIGGERS) {
-        score -= 30;
-      }
-    } catch (e) {}
-    return { status: score >= 70 ? "Good" : "Poor", score: score };
-  } catch (e) {
-    return { status: "Unknown", score: 0 };
-  }
-}
-
-function performBackgroundHealthCheck() {
-  try {
-    var remaining = ScriptApp.getRemainingDailyTriggers();
-    if (remaining < CONFIG.EXECUTION_LIMITS.MIN_QUOTA_TRIGGERS) {
-      console.warn("Low execution quota: " + remaining + " triggers");
-    }
-  } catch (e) {}
-}
-
-function createMainMenu() {
-  var ui = SpreadsheetApp.getUi();
-  var health = getQuickHealthStatus();
-  var menuTitle = health.status === 'Poor' ? '🚀 Sheet Tools ⚠️' : '🚀 Sheet Tools';
-  
-  ui.createMenu(menuTitle)
-    .addItem('🔄 Refresh All Reports', 'refreshAllReports')
-    .addItem('🎯 Check Goal Progress', 'checkGoalProgress')
-    .addSeparator()
-    .addSubMenu(ui.createMenu('📊 Individual Reports')
-      .addItem('Dashboard', 'createRestoredMTDDashboard')
-      .addItem('YTD Report', 'createYTDReport')
-      .addItem('Client List', 'updateClientList'))
-    .addSeparator()
-    .addSubMenu(ui.createMenu('🛠️ Maintenance')
-      .addItem('🏥 System Health Check', 'runSystemHealthCheck')
-      .addItem('🧹 Clear System Cache', 'clearAllSystemCaches')
-      .addItem('✅ Re-Apply Validation', 'setupDataValidationRules')
-      .addItem('🔄 Convert Smart Tables', 'convertSmartTablesToRegularSheets')
-      .addItem('🔍 Analyze Sheet Types', 'analyzeSheetTypes'))
-    .addSeparator()
-    .addSubMenu(ui.createMenu('🗓️ Year-End')
-      .addItem('📁 Verify Archive', 'verifyYearEndArchive')
-      .addItem('🏁 Run Year-End Reset', 'runYearEndReset'))
-    .addSeparator()
-    .addSubMenu(ui.createMenu('ℹ️ Help')
-      .addItem('🎯 Usage Tips', 'showUsageTips')
-      .addItem('📖 System Overview', 'showSystemOverview'))
-    .addToUi();
-}
-
+/**
+ * Creates custom menu when spreadsheet opens
+ */
 function onOpen() {
-  try {
-    createMainMenu();
-    performBackgroundHealthCheck();
-  } catch (e) {
-    try {
-      SpreadsheetApp.getUi()
-        .createMenu('🚀 Sheet Tools')
-        .addItem('🔄 Refresh All', 'refreshAllReports')
-        .addToUi();
-    } catch (e2) {}
-  }
-}
-
-function onEdit(e) {
-  if (!e || !e.range) return;
+  const ui = SpreadsheetApp.getUi();
   
-  var range = e.range;
-  var sheet = range.getSheet();
-  var sheetName = sheet.getName();
-  var cellRef = range.getA1Notation();
-  var row = range.getRow();
+  ui.createMenu('📊 Sales Tracker')
+    .addItem('🔄 Refresh All Data', 'refreshAllData')
+    .addItem('📈 Generate MTD Dashboard', 'generateMTDDashboard')
+    .addItem('📊 Generate YTD Report', 'generateYTDReport')
+    .addItem('👥 Update Client List', 'updateClientList')
+    .addSeparator()
+    .addItem('📱 Quick Entry Form', 'showQuickEntryForm')
+    .addSeparator()
+    .addItem('🎯 Show Goal Progress', 'showGoalProgress')
+    .addItem('⚙️ System Tools', 'showSystemTools')
+    .addSeparator()
+    .addItem('🗄️ Year-End Archive', 'showYearEndDialog')
+    .addToUi();
   
-  if (sheetName === "Dashboard" && cellRef === "M2") {
-    createRestoredMTDDashboard();
-    return;
-  }
-  
-  if (CONFIG.MONTH_NAMES.includes(sheetName)) {
-    if (row > 1) {
-      validateDataEntry(e);
-      UnifiedDataAccess.clearCache(sheetName);
-    }
-    if (CONFIG.MONITORED_CELLS.includes(cellRef)) {
-      createRestoredMTDDashboard();
-    }
-  }
-}
-
-function onInstall(e) {
-  onOpen(e);
-  ADVANCED_CACHE.clearAll();
-  UnifiedDataAccess.clearCache();
-}
-
-function refreshAllReports(silent) {
-  var startTime = Date.now();
-  var results = { dashboard: false, ytd: false, client: false };
-  
-  try {
-    if (!silent) {
-      SpreadsheetApp.getActiveSpreadsheet().toast("🔄 Refreshing all reports...", "Please Wait", 30);
-    }
-    
-    UnifiedDataAccess.clearCache();
-    
-    try { createRestoredMTDDashboard(); results.dashboard = true; } catch (e) {}
-    try { createYTDReport(); results.ytd = true; } catch (e) {}
-    try { updateClientList(); results.client = true; } catch (e) {}
-    
-    var elapsed = Math.round((Date.now() - startTime) / 1000);
-    var successCount = Object.values(results).filter(Boolean).length;
-    
-    if (!silent) {
-      SpreadsheetApp.getActiveSpreadsheet().toast(
-        "✅ Refresh Complete (" + successCount + "/3 in " + elapsed + "s)", "Success", 5
-      );
-    }
-  } catch (e) {
-    if (!silent) {
-      SpreadsheetApp.getActiveSpreadsheet().toast("❌ Error: " + e.message, "Error", 5);
-    }
-  }
-  
-  return results;
-}
-
-function runSystemHealthCheck() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var checks = { sheets: 0, mappings: 0, cacheStatus: "Unknown" };
-  
-  CONFIG.MONTH_NAMES.forEach(function(m) {
-    if (ss.getSheetByName(m)) {
-      checks.sheets++;
-      try {
-        var map = UnifiedDataAccess.getColumnMapping(m);
-        if (map.DATE && map.CUSTOMER) checks.mappings++;
-      } catch (e) {}
-    }
-  });
-  
-  var cacheStats = ADVANCED_CACHE.getStats();
-  checks.cacheStatus = cacheStats.cacheEnabled ? "Active ✅" : "Disabled ❌";
-  
-  var msg = "🏥 System Health Check:\n\n";
-  msg += "📋 Sheets Found: " + checks.sheets + "/" + CONFIG.MONTH_NAMES.length + "\n";
-  msg += "🗂️ Column Mappings: " + checks.mappings + "/" + checks.sheets + "\n";
-  msg += "💾 Cache: " + checks.cacheStatus + " (" + cacheStats.memoryKeys + " keys)\n";
-  msg += "⚡ Status: " + (checks.sheets === CONFIG.MONTH_NAMES.length ? "All Good ✅" : "Issues Found ⚠️");
-  
-  SpreadsheetApp.getUi().alert("System Health", msg, SpreadsheetApp.getUi().ButtonSet.OK);
-  return checks;
-}
-
-function showUsageTips() {
-  var tips = "🎯 Usage Tips:\n\n";
-  tips += "🚀 Performance:\n";
-  tips += "• Dashboard auto-refreshes when you change goals or month\n";
-  tips += "• Use 'Clear Cache' if data looks stale\n\n";
-  tips += "📊 Data Entry:\n";
-  tips += "• Type, Device, Plan have dropdowns for valid values\n";
-  tips += "• Validation will suggest corrections for typos\n\n";
-  tips += "🔧 Maintenance:\n";
-  tips += "• Run Health Check weekly\n";
-  tips += "• Year-End Reset archives everything before clearing";
-  
-  SpreadsheetApp.getUi().alert("Usage Tips", tips, SpreadsheetApp.getUi().ButtonSet.OK);
-}
-
-function showSystemOverview() {
-  var overview = "📖 System Overview (v5.4):\n\n";
-  
-  try {
-    var cache = ADVANCED_CACHE.getStats();
-    var uda = UnifiedDataAccess.getStats();
-    
-    overview += "💾 Cache:\n";
-    overview += "• Keys: " + cache.memoryKeys + "/" + cache.maxKeys + "\n";
-    overview += "• Enabled: " + (cache.cacheEnabled ? "Yes" : "No") + "\n\n";
-    overview += "🔧 Data Access:\n";
-    overview += "• Methods: " + uda.accessMethodsAvailable.join(", ") + "\n";
-    overview += "• Max Rows: " + uda.defaultMaxRows.toLocaleString() + "\n";
-  } catch (e) {
-    overview += "⚠️ Could not retrieve stats\n";
-  }
-  
-  SpreadsheetApp.getUi().alert("System Overview", overview, SpreadsheetApp.getUi().ButtonSet.OK);
+  // Clean up old triggers on open
+  cleanupOldTriggers();
 }
 
 /**
- * Goal Progress - v5.4 FIXED selling days & percentage display
- * TODAY IS COUNTED AS REMAINING (you still have today to sell)
+ * Handles edit events for real-time validation
+ * Delegates to DataValidation.gs
+ * 🆕 AUTO-REFRESHES Dashboard when month selector changes
  */
-function checkGoalProgress() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var ui = SpreadsheetApp.getUi();
-  var today = new Date();
-  var currentMonth = CONFIG.MONTH_NAMES[today.getMonth()];
+function onEdit(e) {
+  if (!e) return;
   
-  var sheet = ss.getSheetByName(currentMonth);
-  if (!sheet) {
-    ui.alert("Sheet not found: " + currentMonth);
-    return;
-  }
-  
-  // Get goals
-  var ppvgaGoal = sheet.getRange("I2").getValue() || 0;
-  var aiaGoal = sheet.getRange("I5").getValue() || 0;
-  var accGoal = sheet.getRange("I8").getValue() || 0;
-  
-  // Get actuals
-  var counts = getMonthTypeCounts(ss, currentMonth);
-  var ppvgaActual = counts.PPVGA;
-  var aiaActual = counts.AIA + counts.AIAC + counts.AIAB;
-  var upgActual = counts.UPG;
-  var plus1Actual = counts.Plus1;
-  
-  // Get accessory actual
-  var accActual = 0;
   try {
-    var rawAcc = sheet.getRange("I9").getValue();
-    if (rawAcc !== "" && rawAcc !== null) {
-      accActual = (typeof rawAcc === 'number') ? rawAcc : parseFloat(String(rawAcc).replace(/[^0-9.-]+/g, "")) || 0;
-    }
-  } catch (e) {}
-  
-  // Get date info
-  var year = today.getFullYear();
-  var month = today.getMonth();
-  var currentDay = today.getDate();
-  var daysInMonth = new Date(year, month + 1, 0).getDate();
-  
-  // Count selling days manually
-  var totalSellingDays = 0;
-  var currentSellingDay = 0;
-  var sellingDaysRemaining = 0;
-  
-  for (var d = 1; d <= daysInMonth; d++) {
-    var checkDate = new Date(year, month, d);
-    var dayOfWeek = checkDate.getDay();
+    var range = e.range;
+    var sheet = range.getSheet();
+    var sheetName = sheet.getName();
     
-    // Skip Thursday (4) and Friday (5)
-    if (dayOfWeek === 4 || dayOfWeek === 5) {
-      continue;
+    // 🆕 AUTO-REFRESH DASHBOARD when month selector (M2) changes
+    if (sheetName === "Dashboard" && range.getA1Notation() === "M2") {
+      // Small delay to ensure value is set
+      Utilities.sleep(100);
+      
+      // Regenerate dashboard with new month
+      createRestoredMTDDashboard();
+      
+      // Show toast notification
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        'Dashboard updated to ' + range.getValue(),
+        '📊 Refreshed',
+        2
+      );
+      
+      return; // Skip validation for dashboard edits
     }
     
-    // This is a selling day
-    totalSellingDays++;
-    
-    if (d < currentDay) {
-      // Past selling day (before today)
-      // Don't count yet
-    } else if (d === currentDay) {
-      // Today - this is the current selling day number
-      currentSellingDay = totalSellingDays;
+    // Call validation handler from DataValidation.gs for data sheets
+    if (typeof validateOnEdit === 'function') {
+      validateOnEdit(e);
     }
-    
-    if (d >= currentDay) {
-      // Today and future selling days
-      sellingDaysRemaining++;
-    }
+  } catch (error) {
+    console.error('onEdit error:', error);
+    // Don't show UI alerts in onEdit - can be disruptive
   }
-  
-  // If today is Thu/Fri (not a selling day), find the next selling day
-  if (currentSellingDay === 0) {
-    // Today is not a selling day, so we're between selling days
-    // Count how many selling days have passed
-    var passedCount = 0;
-    for (var d = 1; d < currentDay; d++) {
-      var checkDate = new Date(year, month, d);
-      var dayOfWeek = checkDate.getDay();
-      if (dayOfWeek !== 4 && dayOfWeek !== 5) {
-        passedCount++;
+}
+
+/**
+ * Cleanup old/duplicate triggers
+ * Prevents trigger accumulation over time
+ */
+function cleanupOldTriggers() {
+  try {
+    const triggers = ScriptApp.getProjectTriggers();
+    const seen = {};
+    
+    triggers.forEach(function(trigger) {
+      const fn = trigger.getHandlerFunction();
+      
+      // Only clean up onOpen/onEdit duplicates (keep first instance)
+      if (['onOpen', 'onEdit'].includes(fn)) {
+        if (seen[fn]) {
+          ScriptApp.deleteTrigger(trigger); // Delete duplicate
+        } else {
+          seen[fn] = true; // Mark first as seen
+        }
       }
+    });
+  } catch (error) {
+    console.error('cleanupOldTriggers error:', error);
+  }
+}
+
+/**
+ * Shows goal progress dialog
+ * Displays MTD/YTD progress vs goals
+ */
+function showGoalProgress() {
+  try {
+    const config = getConfig();
+    const progress = calculateGoalProgress();
+    
+    const ui = SpreadsheetApp.getUi();
+    
+    const message = `
+📊 GOAL PROGRESS
+
+Monthly Goal: ${formatCurrency(config.MONTHLY_GOAL)}
+MTD Actual:   ${formatCurrency(progress.mtd.actual)}
+MTD Progress: ${progress.mtd.percentage}%
+Status:       ${progress.mtd.status}
+
+─────────────────────────
+
+Yearly Goal:  ${formatCurrency(config.YEARLY_GOAL)}
+YTD Actual:   ${formatCurrency(progress.ytd.actual)}
+YTD Progress: ${progress.ytd.percentage}%
+Status:       ${progress.ytd.status}
+
+─────────────────────────
+
+${progress.message}
+    `.trim();
+    
+    ui.alert('🎯 Goal Tracking', message, ui.ButtonSet.OK);
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('Error loading goal progress: ' + error.message);
+    console.error('showGoalProgress error:', error);
+  }
+}
+
+/**
+ * Calculates goal progress for MTD and YTD
+ * @returns {Object} Progress data
+ */
+function calculateGoalProgress() {
+  try {
+    const config = getConfig();
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    // Get MTD data
+    const mtdData = getMTDSalesData(currentMonth, currentYear);
+    const mtdRevenue = mtdData.reduce(function(sum, row) {
+      const amount = parseFloat(row[config.COLUMNS.AMOUNT]) || 0;
+      return sum + amount;
+    }, 0);
+    
+    // Get YTD data
+    const ytdData = getYTDSalesData(currentYear);
+    const ytdRevenue = ytdData.reduce(function(sum, row) {
+      const amount = parseFloat(row[config.COLUMNS.AMOUNT]) || 0;
+      return sum + amount;
+    }, 0);
+    
+    // Calculate percentages
+    const mtdPercentage = Math.round((mtdRevenue / config.MONTHLY_GOAL) * 100);
+    const ytdPercentage = Math.round((ytdRevenue / config.YEARLY_GOAL) * 100);
+    
+    // Determine status
+    const mtdStatus = mtdPercentage >= 100 ? '🎉 GOAL MET!' : 
+                      mtdPercentage >= 75 ? '💪 On Track' :
+                      mtdPercentage >= 50 ? '⚠️ Needs Attention' :
+                      '🚨 Behind Goal';
+    
+    const ytdStatus = ytdPercentage >= 100 ? '🎉 GOAL MET!' :
+                      ytdPercentage >= 75 ? '💪 On Track' :
+                      ytdPercentage >= 50 ? '⚠️ Needs Attention' :
+                      '🚨 Behind Goal';
+    
+    // Calculate what's needed
+    const mtdRemaining = config.MONTHLY_GOAL - mtdRevenue;
+    const ytdRemaining = config.YEARLY_GOAL - ytdRevenue;
+    
+    let message = '';
+    if (mtdRemaining > 0) {
+      const daysLeft = new Date(currentYear, currentMonth + 1, 0).getDate() - now.getDate();
+      const dailyTarget = mtdRemaining / Math.max(daysLeft, 1);
+      message = `Need ${formatCurrency(dailyTarget)}/day for ${daysLeft} days to hit monthly goal.`;
+    } else {
+      message = `Monthly goal exceeded by ${formatCurrency(Math.abs(mtdRemaining))}! 🎉`;
     }
-    currentSellingDay = passedCount; // Last completed selling day
+    
+    return {
+      mtd: {
+        actual: mtdRevenue,
+        goal: config.MONTHLY_GOAL,
+        percentage: mtdPercentage,
+        status: mtdStatus,
+        remaining: mtdRemaining
+      },
+      ytd: {
+        actual: ytdRevenue,
+        goal: config.YEARLY_GOAL,
+        percentage: ytdPercentage,
+        status: ytdStatus,
+        remaining: ytdRemaining
+      },
+      message: message
+    };
+    
+  } catch (error) {
+    console.error('calculateGoalProgress error:', error);
+    return {
+      mtd: { actual: 0, goal: 0, percentage: 0, status: 'Error', remaining: 0 },
+      ytd: { actual: 0, goal: 0, percentage: 0, status: 'Error', remaining: 0 },
+      message: 'Error calculating progress'
+    };
   }
-  
-  // Ensure minimum values
-  totalSellingDays = Math.max(1, totalSellingDays);
-  currentSellingDay = Math.max(1, currentSellingDay);
-  sellingDaysRemaining = Math.max(1, sellingDaysRemaining);
-  
-  // Expected percentage based on where you SHOULD be by end of today
-  var expectedPct = (currentSellingDay / totalSellingDays * 100).toFixed(1);
-  
-  // Progress percentages
-  var ppvgaPct = ppvgaGoal > 0 ? (ppvgaActual / ppvgaGoal * 100) : 0;
-  var aiaPct = aiaGoal > 0 ? (aiaActual / aiaGoal * 100) : 0;
-  var accPct = accGoal > 0 ? (accActual / accGoal * 100) : 0;
-  
-  // What's needed
-  var ppvgaNeeded = Math.max(0, ppvgaGoal - ppvgaActual);
-  var aiaNeeded = Math.max(0, aiaGoal - aiaActual);
-  var accNeeded = Math.max(0, accGoal - accActual);
-  
-  // Daily pace
-  var daysForPace = Math.max(1, sellingDaysRemaining);
-  var ppvgaPace = (ppvgaNeeded / daysForPace).toFixed(1);
-  var aiaPace = (aiaNeeded / daysForPace).toFixed(1);
-  var accPace = (accNeeded / daysForPace).toFixed(0);
-  
-  // Stretch goals
-  var ppvgaStretch = Math.ceil(ppvgaGoal * 1.25);
-  var aiaStretch = Math.ceil(aiaGoal * 1.25);
-  var accStretch = Math.ceil(accGoal * 1.25);
-  
-  function getStatus(actualPct, expectedPct) {
-    if (actualPct >= expectedPct) return "✅ ON TRACK";
-    if (actualPct >= expectedPct * 0.8) return "⚠️ SLIGHTLY BEHIND";
-    return "🔴 BEHIND";
+}
+
+/**
+ * Shows system tools dialog
+ * Provides access to maintenance functions
+ */
+function showSystemTools() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    
+    const response = ui.prompt(
+      '⚙️ System Tools',
+      'Choose an action:\n\n' +
+      '1️⃣ Clear All Caches\n' +
+      '2️⃣ Rebuild Column Mappings\n' +
+      '3️⃣ Validate All Data\n' +
+      '4️⃣ Export System Config\n' +
+      '5️⃣ View Cache Statistics\n\n' +
+      'Enter number (1-5):',
+      ui.ButtonSet.OK_CANCEL
+    );
+    
+    if (response.getSelectedButton() !== ui.Button.OK) return;
+    
+    const choice = response.getResponseText().trim();
+    
+    switch(choice) {
+      case '1':
+        clearAllCaches();
+        ui.alert('✅ All caches cleared');
+        break;
+      case '2':
+        rebuildColumnMappings();
+        ui.alert('✅ Column mappings rebuilt');
+        break;
+      case '3':
+        validateAllData();
+        break;
+      case '4':
+        exportSystemConfig();
+        break;
+      case '5':
+        showCacheStatistics();
+        break;
+      default:
+        ui.alert('Invalid choice');
+    }
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('Error in system tools: ' + error.message);
+    console.error('showSystemTools error:', error);
   }
-  
-  // Build message
-  var msg = "📅 Selling Day " + currentSellingDay + " of " + totalSellingDays + "\n";
-  msg += "⏳ " + sellingDaysRemaining + " selling days left (including today)\n";
-  msg += "📆 Excludes Thu/Fri - your days off\n";
-  msg += "🎯 You should be at " + expectedPct + "% by end of today\n";
-  msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n";
-  
-  msg += "📊 PPVGA\n";
-  msg += "   Base Goal: " + ppvgaActual + " / " + ppvgaGoal + " (" + ppvgaPct.toFixed(1) + "%)\n";
-  msg += "   Stretch (125%): " + ppvgaActual + " / " + ppvgaStretch + "\n";
-  msg += "   Status: " + getStatus(ppvgaPct, parseFloat(expectedPct)) + "\n";
-  msg += "   Need: " + ppvgaNeeded + " more (" + ppvgaPace + "/day)\n\n";
-  
-  msg += "💜 AIA/AC\n";
-  msg += "   Base Goal: " + aiaActual + " / " + aiaGoal + " (" + aiaPct.toFixed(1) + "%)\n";
-  msg += "   Stretch (125%): " + aiaActual + " / " + aiaStretch + "\n";
-  msg += "   Status: " + getStatus(aiaPct, parseFloat(expectedPct)) + "\n";
-  msg += "   Need: " + aiaNeeded + " more (" + aiaPace + "/day)\n\n";
-  
-  msg += "💰 ACCESSORIES\n";
-  msg += "   Base Goal: $" + accActual.toLocaleString() + " / $" + accGoal.toLocaleString() + " (" + accPct.toFixed(1) + "%)\n";
-  msg += "   Stretch (125%): $" + accActual.toLocaleString() + " / $" + accStretch.toLocaleString() + "\n";
-  msg += "   Status: " + getStatus(accPct, parseFloat(expectedPct)) + "\n";
-  msg += "   Need: $" + accNeeded.toLocaleString() + " more ($" + accPace + "/day)\n\n";
-  
-  msg += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-  msg += "📈 OTHER METRICS (MTD)\n";
-  msg += "   UPG: " + upgActual + "\n";
-  msg += "   Plus1: " + plus1Actual + "\n";
-  
-  ui.alert("🎯 " + currentMonth.toUpperCase() + " GOAL PROGRESS", msg, ui.ButtonSet.OK);
+}
+
+/**
+ * Clears all cache layers
+ */
+function clearAllCaches() {
+  try {
+    if (typeof Cache !== 'undefined') {
+      Cache.clearAll();
+    }
+    
+    // Also clear script cache
+    CacheService.getScriptCache().removeAll(['config', 'sales_data', 'dashboard', 'ytd', 'clients']);
+    
+    SpreadsheetApp.getActiveSpreadsheet().toast('All caches cleared', '✅ Cache', 3);
+    
+  } catch (error) {
+    console.error('clearAllCaches error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Rebuilds column mappings for all sheets
+ */
+function rebuildColumnMappings() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheets = ss.getSheets();
+    let rebuilt = 0;
+    
+    sheets.forEach(function(sheet) {
+      const sheetName = sheet.getName();
+      
+      // Skip utility sheets
+      if (sheetName.startsWith('_') || 
+          sheetName === 'Dashboard' || 
+          sheetName === 'YTD Report' ||
+          sheetName === 'Client List') {
+        return;
+      }
+      
+      try {
+        const dataAccess = new UnifiedDataAccess(sheet);
+        // Force column detection
+        dataAccess.detectColumns();
+        rebuilt++;
+      } catch (e) {
+        console.warn(`Could not rebuild mapping for ${sheetName}:`, e);
+      }
+    });
+    
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      `Rebuilt mappings for ${rebuilt} sheets`,
+      '✅ Column Mappings',
+      3
+    );
+    
+  } catch (error) {
+    console.error('rebuildColumnMappings error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Validates all data across all sheets
+ */
+function validateAllData() {
+  try {
+    const ui = SpreadsheetApp.getUi();
+    
+    ui.alert(
+      '⏳ Validation Running',
+      'This may take a few minutes for large datasets.\n\n' +
+      'Results will appear in a new sheet called "Validation Report".',
+      ui.ButtonSet.OK
+    );
+    
+    // Run validation (implementation in DataValidation.gs)
+    if (typeof runFullValidation === 'function') {
+      const results = runFullValidation();
+      
+      ui.alert(
+        '✅ Validation Complete',
+        `Found ${results.errorCount} errors in ${results.rowsChecked} rows.\n\n` +
+        'See "Validation Report" sheet for details.',
+        ui.ButtonSet.OK
+      );
+    } else {
+      ui.alert('Validation function not available');
+    }
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('Validation error: ' + error.message);
+    console.error('validateAllData error:', error);
+  }
+}
+
+/**
+ * Exports system configuration
+ */
+function exportSystemConfig() {
+  try {
+    const config = getConfig();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // Create or get config export sheet
+    let sheet = ss.getSheetByName('_Config_Export');
+    if (sheet) {
+      sheet.clear();
+    } else {
+      sheet = ss.insertSheet('_Config_Export');
+    }
+    
+    // Write config as JSON
+    const configJson = JSON.stringify(config, null, 2);
+    sheet.getRange(1, 1).setValue('System Configuration Export');
+    sheet.getRange(2, 1).setValue(new Date().toISOString());
+    sheet.getRange(4, 1).setValue(configJson);
+    
+    // Format
+    sheet.getRange(1, 1).setFontWeight('bold').setFontSize(14);
+    sheet.setColumnWidth(1, 800);
+    
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'Config exported to "_Config_Export" sheet',
+      '✅ Export Complete',
+      3
+    );
+    
+  } catch (error) {
+    console.error('exportSystemConfig error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Shows cache statistics
+ */
+function showCacheStatistics() {
+  try {
+    const stats = getCacheStats();
+    const ui = SpreadsheetApp.getUi();
+    
+    const message = `
+📊 CACHE STATISTICS
+
+Memory Cache:
+  Size: ${stats.memory.size} items
+  Hit Rate: ${stats.memory.hitRate}%
+
+Script Cache:
+  Size: ${stats.script.size} items
+  Hit Rate: ${stats.script.hitRate}%
+
+Cache Groups:
+  ${Object.keys(stats.groups).map(g => `${g}: ${stats.groups[g]} items`).join('\n  ')}
+
+Last Cleared: ${stats.lastCleared || 'Never'}
+    `.trim();
+    
+    ui.alert('📈 Cache Statistics', message, ui.ButtonSet.OK);
+    
+  } catch (error) {
+    SpreadsheetApp.getUi().alert('Error loading cache stats: ' + error.message);
+    console.error('showCacheStatistics error:', error);
+  }
+}
+
+/**
+ * Gets cache statistics
+ * @returns {Object} Cache stats
+ */
+function getCacheStats() {
+  try {
+    if (typeof Cache !== 'undefined' && typeof Cache.getStats === 'function') {
+      return Cache.getStats();
+    }
+    
+    // Fallback if Cache.getStats doesn't exist
+    return {
+      memory: { size: 0, hitRate: 0 },
+      script: { size: 0, hitRate: 0 },
+      groups: {},
+      lastCleared: null
+    };
+    
+  } catch (error) {
+    console.error('getCacheStats error:', error);
+    return {
+      memory: { size: 0, hitRate: 0 },
+      script: { size: 0, hitRate: 0 },
+      groups: {},
+      lastCleared: null
+    };
+  }
+}
+
+/**
+ * Helper to format currency
+ */
+function formatCurrency(value) {
+  if (typeof value !== 'number') {
+    value = parseFloat(value) || 0;
+  }
+  return '$' + value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+/**
+ * Helper functions that might be called from other files
+ * These delegate to the appropriate modules
+ */
+
+function refreshAllData() {
+  if (typeof refreshAll === 'function') {
+    refreshAll();
+  } else {
+    clearAllCaches();
+    SpreadsheetApp.getActiveSpreadsheet().toast('Data refreshed', '✅ Refresh', 3);
+  }
+}
+
+function generateMTDDashboard() {
+  if (typeof createRestoredMTDDashboard === 'function') {
+    createRestoredMTDDashboard();
+  }
+}
+
+function generateYTDReport() {
+  if (typeof createYTDReport === 'function') {
+    createYTDReport();
+  }
+}
+
+function updateClientList() {
+  if (typeof generateClientList === 'function') {
+    generateClientList();
+  }
+}
+
+function showYearEndDialog() {
+  if (typeof showYearEndArchiveDialog === 'function') {
+    showYearEndArchiveDialog();
+  }
+}
+
+/**
+ * Get MTD sales data
+ * Helper function for goal tracking
+ */
+function getMTDSalesData(month, year) {
+  try {
+    // Your exact month names
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'June',
+      'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'
+    ];
+    
+    const sheetName = monthNames[month];
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    
+    if (!sheet) {
+      console.warn(`Sheet not found: ${sheetName}`);
+      return [];
+    }
+    
+    const dataAccess = new UnifiedDataAccess(sheet);
+    return dataAccess.getAllData();
+    
+  } catch (error) {
+    console.error('getMTDSalesData error:', error);
+    return [];
+  }
+}
+
+/**
+ * Get YTD sales data
+ * Helper function for goal tracking
+ */
+function getYTDSalesData(year) {
+  try {
+    // Use existing YTD function if available
+    if (typeof getAllSalesDataForYear === 'function') {
+      return getAllSalesDataForYear(year);
+    }
+    
+    // Fallback: aggregate all month sheets
+    const monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'June',
+      'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'
+    ];
+    
+    let allData = [];
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const currentMonth = new Date().getMonth();
+    
+    // Only process months up to current month for current year
+    const monthsToProcess = (year === new Date().getFullYear()) 
+      ? monthNames.slice(0, currentMonth + 1)
+      : monthNames;
+    
+    monthsToProcess.forEach(function(sheetName) {
+      const sheet = ss.getSheetByName(sheetName);
+      
+      if (sheet) {
+        try {
+          const dataAccess = new UnifiedDataAccess(sheet);
+          const monthData = dataAccess.getAllData();
+          allData = allData.concat(monthData);
+        } catch (e) {
+          console.warn(`Could not read data from ${sheetName}:`, e);
+        }
+      }
+    });
+    
+    return allData;
+    
+  } catch (error) {
+    console.error('getYTDSalesData error:', error);
+    return [];
+  }
+}
+
+/**
+ * Helper to get UnifiedDataAccess instance
+ */
+function getUnifiedDataAccess(sheetName) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(sheetName);
+    
+    if (!sheet) {
+      throw new Error(`Sheet not found: ${sheetName}`);
+    }
+    
+    return new UnifiedDataAccess(sheet);
+    
+  } catch (error) {
+    console.error('getUnifiedDataAccess error:', error);
+    return null;
+  }
 }
